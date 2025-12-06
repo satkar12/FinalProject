@@ -1,14 +1,16 @@
 {
     "compilerOptions": {
         "target": "ES2020",
-        "module": "Node16",
-        "moduleResolution": "node16",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
         "esModuleInterop": true,
         "forceConsistentCasingInFileNames": true,
         "strict": true,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "outDir": "dist",
+        "resolveJsonModule": true
     },
-    "ts-node": {
-        "esm": true
-    } // Add this for ts-node ESM support
+    "include": [
+        "src"
+    ]
 }

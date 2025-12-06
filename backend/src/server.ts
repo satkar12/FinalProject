@@ -4,11 +4,18 @@ import formidable from "formidable";
 import fs from "fs";
 import pdf from "pdf-parse";
 import dotenv from "dotenv";
+import fetch from "node-fetch";
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+
+
+const PORT = process.env.PORT || 4000;
 
 // Hugging Face API key
 const HF_API_KEY = process.env.HF_API_KEY;
@@ -18,18 +25,16 @@ if (!HF_API_KEY) {
 }
 
 // --------------------
-// Helper: Hugging Face Request
+// Hugging Face request
 // --------------------
 async function hfRequest(model: string, body: any, isImage = false) {
-    const headers: any = {
-        Authorization: `Bearer ${HF_API_KEY}`,
-    };
+    const headers: any = { Authorization: `Bearer ${HF_API_KEY}` };
     if (!isImage) headers["Content-Type"] = "application/json";
 
     const res = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
         method: "POST",
         headers,
-        body,
+        body: isImage ? body : JSON.stringify(body),
     });
 
     if (!res.ok) {
@@ -50,15 +55,13 @@ async function extractTextFromPDF(filePath: string) {
 }
 
 // --------------------
-// Extract text from Image (OCR + Caption)
+// Extract text from Image
 // --------------------
 async function extractTextFromImage(fileBuffer: Buffer) {
-    // TrOCR OCR
-    const ocrResult = await hfRequest("microsoft/trocr-large-printed", fileBuffer, true);
+    const ocrResult = (await hfRequest("microsoft/trocr-large-printed", fileBuffer, true)) as any[];
     const ocrText = ocrResult?.[0]?.generated_text || "";
 
-    // BLIP Caption
-    const captionResult = await hfRequest("Salesforce/blip-image-captioning-large", fileBuffer, true);
+    const captionResult = (await hfRequest("Salesforce/blip-image-captioning-large", fileBuffer, true)) as any[];
     const captionText = captionResult?.[0]?.generated_text || "";
 
     return `${ocrText}\n${captionText}`.trim();
@@ -68,26 +71,23 @@ async function extractTextFromImage(fileBuffer: Buffer) {
 // Summarize text
 // --------------------
 async function summarizeText(text: string) {
-    const summaryResult = await hfRequest(
-        "facebook/bart-large-cnn",
-        JSON.stringify({ inputs: text })
-    );
+    const summaryResult = await hfRequest("facebook/bart-large-cnn", { inputs: text }) as any[];
     return summaryResult?.[0]?.summary_text || "Unable to summarize";
 }
 
 // --------------------
-// Generate Key Points
+// Generate key points
 // --------------------
 async function generateKeyPoints(text: string) {
     const keypointsResult = await hfRequest(
         "facebook/bart-large-cnn",
-        JSON.stringify({ inputs: `Write 5 bullet points for:\n${text}` })
-    );
+        { inputs: `Write 5 bullet points for:\n${text}` }
+    ) as any[];
     return keypointsResult?.[0]?.summary_text || "";
 }
 
 // --------------------
-// Main Route
+// Main route
 // --------------------
 app.post("/extract-summarize", (req: Request, res: Response) => {
     const form = formidable({ multiples: false });
@@ -98,7 +98,16 @@ app.post("/extract-summarize", (req: Request, res: Response) => {
         const file = files.file as any;
         if (!file) return res.status(400).json({ error: "No file provided" });
 
-        const filePath = file.filepath;
+        const filePath =
+            file?.filepath ||
+            file?._writeStream?.path ||
+            file?.originalFilename ||
+            null;
+        if (!filePath) {
+            return res.status(500).json({ error: "File path missing (Formidable error)" });
+        }
+
+
         const fileType = file.mimetype;
 
         try {
@@ -120,6 +129,11 @@ app.post("/extract-summarize", (req: Request, res: Response) => {
         } catch (e: any) {
             console.error("Processing error:", e);
             res.status(500).json({ error: e.message || "Processing failed" });
+        } finally {
+            if (filePath) {
+                fs.unlink(filePath, () => { });
+            }
+            // cleanup temp file
         }
     });
 });
@@ -127,7 +141,7 @@ app.post("/extract-summarize", (req: Request, res: Response) => {
 // --------------------
 // Start server
 // --------------------
-const PORT = 4000;
+
 app.listen(PORT, () => {
     console.log(`✅ Server running at http://localhost:${PORT}`);
 });
