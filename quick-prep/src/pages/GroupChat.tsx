@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ArrowLeft, Send, Paperclip, FileText, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Send, Paperclip, FileText, Image as ImageIcon, User } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import Header from "@/components/Header";
 import BottomNav from "@/components/BottomNav";
@@ -57,6 +58,7 @@ const GroupChat = () => {
         };
 
         loadData();
+
         const channel = supabase
             .channel(`group-${id}`)
             .on(
@@ -185,6 +187,7 @@ const GroupChat = () => {
             fileInputRef.current.value = "";
         }
     };
+
     if (authLoading || isLoading) {
         return (
             <div className="min-h-screen bg-background flex items-center justify-center">
@@ -215,45 +218,66 @@ const GroupChat = () => {
                 <Card className="flex flex-col h-[calc(100vh-240px)]">
                     <ScrollArea className="flex-1 p-4">
                         <div className="space-y-4">
-                            {messages.map((message) => (
-                                <div
-                                    key={message.id}
-                                    className={`flex ${message.user_id === user?.id ? "justify-end" : "justify-start"
-                                        }`}
-                                >
+                            {messages.map((message) => {
+                                const isCurrentUser = message.user_id === user?.id;
+                                const displayName = isCurrentUser
+                                    ? user?.email?.split('@')[0] || 'You'
+                                    : message.user_id.slice(0, 8);
+                                return (
                                     <div
-                                        className={`max-w-[70%] rounded-lg p-3 ${message.user_id === user?.id
-                                            ? "bg-primary text-primary-foreground"
-                                            : "bg-muted"
+                                        key={message.id}
+                                        className={`flex flex-col ${isCurrentUser ? "items-end" : "items-start"
                                             }`}
                                     >
-                                        {message.content && <p>{message.content}</p>}
-                                        {message.file_url && (
-                                            <a
-                                                href={message.file_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex items-center gap-2 mt-2 underline"
-                                            >
-                                                {message.file_type?.startsWith("image/") ? (
-                                                    <>
-                                                        <ImageIcon className="h-4 w-4" />
-                                                        <span>{message.file_name}</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <FileText className="h-4 w-4" />
-                                                        <span>{message.file_name}</span>
-                                                    </>
-                                                )}
-                                            </a>
-                                        )}
-                                        <p className="text-xs opacity-70 mt-1">
-                                            {new Date(message.created_at).toLocaleTimeString()}
-                                        </p>
+                                        <div className={`flex items-center gap-2 mb-1 ${isCurrentUser ? "flex-row-reverse" : "flex-row"
+                                            }`}>
+                                            <Avatar className="h-6 w-6 shrink-0">
+                                                <AvatarFallback className={`text-xs ${isCurrentUser
+                                                    ? "bg-primary/20 text-primary"
+                                                    : "bg-muted-foreground/20 text-muted-foreground"
+                                                    }`}>
+                                                    <User className="h-3 w-3" />
+                                                </AvatarFallback>
+                                            </Avatar>
+                                            <span className="text-xs text-muted-foreground font-medium">
+                                                {displayName}
+                                            </span>
+                                        </div>
+                                        <div
+                                            className={`max-w-[70%] rounded-lg p-3 ${isCurrentUser
+                                                ? "bg-primary text-primary-foreground"
+                                                : "bg-muted"
+                                                }`}
+                                        >
+                                            {message.content && <p>{message.content}</p>}
+                                            {message.file_url && (
+                                                <a
+                                                    href={message.file_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="flex items-center gap-2 mt-2 underline"
+                                                >
+                                                    {message.file_type?.startsWith("image/") ? (
+                                                        <>
+                                                            <ImageIcon className="h-4 w-4" />
+                                                            <span>{message.file_name}</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <FileText className="h-4 w-4" />
+                                                            <span>{message.file_name}</span>
+                                                        </>
+                                                    )}
+                                                </a>
+                                            )}
+                                            <p className="text-xs opacity-70 mt-1">
+                                                {new Date(message.created_at).toLocaleTimeString()}
+                                            </p>
+                                        </div>
+
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </ScrollArea>
 
@@ -268,14 +292,12 @@ const GroupChat = () => {
                                 disabled={uploading}
                             />
                             <Button
-
                                 variant="outline"
                                 size="icon"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={uploading}
-                                className="hover:bg-green-600"
                             >
-                                <Paperclip className="h-4 w-4 " />
+                                <Paperclip className="h-4 w-4" />
                             </Button>
                             <Textarea
                                 value={newMessage}

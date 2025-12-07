@@ -73,6 +73,13 @@ const Navigation = () => {
                     <Book className="w-4 h-4" />
                     Resources
                 </Link>
+                <Link
+                    to="/quiz"
+                    className="text-foreground hover:text-primary transition-colors flex items-center gap-2"
+                >
+
+                    ✨Quiz
+                </Link>
             </div>
 
             {/* Right: Auth Section */}

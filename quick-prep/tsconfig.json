@@ -11,6 +11,8 @@
     "compilerOptions": {
         "ignoreDeprecations": "6.0",
         "baseUrl": ".",
+        "module": "ESNEXT",
+        "target": "ESNEXT",
         "paths": {
             "@/*": [
                 "./src*"

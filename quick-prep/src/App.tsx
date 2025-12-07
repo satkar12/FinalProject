@@ -24,6 +24,7 @@ import Groups from "./pages/Groups";
 import { ProtectedRoute } from "@/components/ProtectedRoutes";
 import DiscussionIndex from "./pages/DiscussionIndex";
 import Summarizer from "./pages/Summarizer";
+import Quiz from "./pages/Quiz";
 
 
 
@@ -52,7 +53,7 @@ const App = () => (
                         <Route path="/hero" element={<HeroSection />} />
                         <Route path="/navigation" element={<Navigation />} />
                         <Route path="/summarizer" element={<Summarizer />} />
-
+                        <Route path="/quiz" element={<Quiz />} />
                         <Route path="/upload" element={<UploadResources />} />
                         <Route path="/users" element={<UsersList />} />
                         <Route path="/auth" element={<Auth />} />

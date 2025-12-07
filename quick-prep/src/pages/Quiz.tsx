@@ -1,22 +1,31 @@
 import { useState, useRef } from "react";
+import Header from "@/components/Header";
+import BottomNav from "@/components/BottomNav";
 import FloatingShapes from "@/components/FloatingShapes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sparkles, FileText, Zap, Copy, Check, Upload, X, Image, File } from "lucide-react";
+import { HelpCircle, FileText, Brain, Copy, Check, Upload, X, Image, File, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
-interface SummaryResult {
-    extractedText: string;
-    summary: string;
-    keypoints: string;
+interface Question {
+    question: string;
+    options: string[];
+    correctAnswer: string;
+    explanation: string;
 }
 
-const Summarizer = () => {
+interface QuizResult {
+    questions: Question[];
+}
+
+const Quiz = () => {
     const [uploadedFile, setUploadedFile] = useState<File | null>(null);
     const [filePreview, setFilePreview] = useState<string | null>(null);
-    const [result, setResult] = useState<SummaryResult | null>(null);
+    const [result, setResult] = useState<QuizResult | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [copied, setCopied] = useState<string | null>(null);
+    const [copied, setCopied] = useState<number | null>(null);
+    const [revealedAnswers, setRevealedAnswers] = useState<Set<number>>(new Set());
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -44,6 +53,7 @@ const Summarizer = () => {
 
         setUploadedFile(file);
         setResult(null);
+        setRevealedAnswers(new Set());
 
         if (file.type.startsWith('image/')) {
             const reader = new FileReader();
@@ -58,16 +68,17 @@ const Summarizer = () => {
         setUploadedFile(null);
         setFilePreview(null);
         setResult(null);
+        setRevealedAnswers(new Set());
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
         }
     };
 
-    const handleSummarize = async () => {
+    const handleGenerate = async () => {
         if (!uploadedFile) {
             toast({
                 title: "No file uploaded",
-                description: "Please upload a PDF or image to summarize",
+                description: "Please upload a PDF or image to generate questions",
                 variant: "destructive",
             });
             return;
@@ -75,32 +86,32 @@ const Summarizer = () => {
 
         setIsLoading(true);
         setResult(null);
+        setRevealedAnswers(new Set());
 
         try {
-            const form = new FormData();
-            form.append("file", uploadedFile);
+            const text = await uploadedFile.text();
 
-            const response = await fetch("http://localhost:4000/summarize", {
+            const response = await fetch("http://localhost:4000/generate-questions", {
                 method: "POST",
-                body: form,
+                body: text,
             });
 
             if (!response.ok) {
                 throw new Error("Failed to process the document");
             }
 
+
             const data = await response.json();
             setResult(data);
-
             toast({
-                title: "Summary generated!",
-                description: "Your document has been processed successfully",
+                title: "Quiz generated!",
+                description: `${data.questions?.length || 0} questions created from your document`,
             });
         } catch (error) {
-            console.error("Summarize error:", error);
+            console.error("Quiz generation error:", error);
             toast({
                 title: "Error",
-                description: error instanceof Error ? error.message : "Failed to generate summary",
+                description: error instanceof Error ? error.message : "Failed to generate quiz",
                 variant: "destructive",
             });
         } finally {
@@ -108,11 +119,24 @@ const Summarizer = () => {
         }
     };
 
-    const handleCopy = async (text: string, section: string) => {
+    const handleCopy = async (question: Question, index: number) => {
+        const text = `Q: ${question.question}\n\nOptions:\n${question.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join('\n')}\n\nAnswer: ${question.correctAnswer}\n\nExplanation: ${question.explanation}`;
         await navigator.clipboard.writeText(text);
-        setCopied(section);
+        setCopied(index);
         toast({ title: "Copied to clipboard!" });
         setTimeout(() => setCopied(null), 2000);
+    };
+
+    const toggleAnswer = (index: number) => {
+        setRevealedAnswers(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(index)) {
+                newSet.delete(index);
+            } else {
+                newSet.add(index);
+            }
+            return newSet;
+        });
     };
 
     const getFileIcon = () => {
@@ -130,17 +154,17 @@ const Summarizer = () => {
                 {/* Hero Section */}
                 <div className="text-center mb-12">
                     <div className="inline-flex items-center gap-2 bg-background/80 backdrop-blur-sm border border-border/50 rounded-full px-4 py-2 mb-6">
-                        <Sparkles className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-medium">AI-Powered Study Tool</span>
+                        <Brain className="h-4 w-4 text-primary" />
+                        <span className="text-sm font-medium">AI Quiz Generator</span>
                     </div>
 
                     <h1 className="text-4xl md:text-5xl font-bold mb-4">
-                        Summarize Your{" "}
-                        <span className="text-primary underline decoration-primary/30">Documents</span>
+                        Generate{" "}
+                        <span className="text-primary underline decoration-primary/30">Quiz Questions</span>
                     </h1>
 
                     <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-                        Upload PDFs or images of your study materials and get instant AI-powered summaries with key points.
+                        Upload your study materials and get AI-generated quiz questions to test your knowledge.
                     </p>
                 </div>
 
@@ -151,28 +175,28 @@ const Summarizer = () => {
                             <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
                                 <FileText className="h-6 w-6 text-primary" />
                             </div>
-                            <h3 className="font-semibold mb-2">Text Extraction</h3>
-                            <p className="text-sm text-muted-foreground">Extract text from images and PDFs automatically</p>
+                            <h3 className="font-semibold mb-2">Content Analysis</h3>
+                            <p className="text-sm text-muted-foreground">AI analyzes your documents to understand key concepts</p>
                         </CardContent>
                     </Card>
 
                     <Card className="bg-background/60 backdrop-blur-sm border-border/50 text-center">
                         <CardContent className="pt-6">
                             <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-4">
-                                <Zap className="h-6 w-6 text-green-500" />
+                                <HelpCircle className="h-6 w-6 text-green-500" />
                             </div>
-                            <h3 className="font-semibold mb-2">Smart Summary</h3>
-                            <p className="text-sm text-muted-foreground">Get concise summaries of your content</p>
+                            <h3 className="font-semibold mb-2">Multiple Choice</h3>
+                            <p className="text-sm text-muted-foreground">Get well-crafted questions with answer options</p>
                         </CardContent>
                     </Card>
 
                     <Card className="bg-background/60 backdrop-blur-sm border-border/50 text-center">
                         <CardContent className="pt-6">
                             <div className="w-12 h-12 rounded-full bg-purple-500/10 flex items-center justify-center mx-auto mb-4">
-                                <Sparkles className="h-6 w-6 text-purple-500" />
+                                <Brain className="h-6 w-6 text-purple-500" />
                             </div>
-                            <h3 className="font-semibold mb-2">Key Points</h3>
-                            <p className="text-sm text-muted-foreground">Identify important concepts for quick review</p>
+                            <h3 className="font-semibold mb-2">Explanations</h3>
+                            <p className="text-sm text-muted-foreground">Each answer includes detailed explanations</p>
                         </CardContent>
                     </Card>
                 </div>
@@ -245,19 +269,19 @@ const Summarizer = () => {
                         </div>
 
                         <Button
-                            onClick={handleSummarize}
+                            onClick={handleGenerate}
                             disabled={isLoading || !uploadedFile}
                             className="w-full bg-gradient-primary hover:opacity-90 transition-opacity"
                         >
                             {isLoading ? (
                                 <>
                                     <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-foreground border-t-transparent mr-2" />
-                                    Processing...
+                                    Generating Questions...
                                 </>
                             ) : (
                                 <>
-                                    <Sparkles className="h-4 w-4 mr-2" />
-                                    Extract & Summarize
+                                    <Brain className="h-4 w-4 mr-2" />
+                                    Generate Quiz
                                 </>
                             )}
                         </Button>
@@ -265,82 +289,82 @@ const Summarizer = () => {
                 </Card>
 
                 {/* Results Section */}
-                {result && (
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        {/* Extracted Text */}
-                        <Card className="bg-background/80 backdrop-blur-sm border-border/50">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="flex items-center gap-2 text-lg">
-                                        <FileText className="h-5 w-5 text-primary" />
-                                        Extracted Text
-                                    </CardTitle>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleCopy(result.extractedText, 'extracted')}
-                                        className="gap-1 h-8"
-                                    >
-                                        {copied === 'extracted' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="max-h-[300px] overflow-auto p-3 rounded-lg bg-muted/30 border border-border/30">
-                                    <p className="text-sm whitespace-pre-wrap">{result.extractedText}</p>
-                                </div>
-                            </CardContent>
-                        </Card>
+                {result && result.questions && (
+                    <div className="space-y-4">
+                        <h2 className="text-2xl font-bold flex items-center gap-2">
+                            <HelpCircle className="h-6 w-6 text-primary" />
+                            Generated Questions ({result.questions.length})
+                        </h2>
 
-                        {/* Summary */}
-                        <Card className="bg-background/80 backdrop-blur-sm border-border/50">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="flex items-center gap-2 text-lg">
-                                        <Sparkles className="h-5 w-5 text-primary" />
-                                        Summary
-                                    </CardTitle>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleCopy(result.summary, 'summary')}
-                                        className="gap-1 h-8"
-                                    >
-                                        {copied === 'summary' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="max-h-[300px] overflow-auto p-3 rounded-lg bg-muted/30 border border-border/30">
-                                    <p className="text-sm whitespace-pre-wrap">{result.summary}</p>
-                                </div>
-                            </CardContent>
-                        </Card>
+                        {result.questions.map((q, index) => (
+                            <Card key={index} className="bg-background/80 backdrop-blur-sm border-border/50">
+                                <CardHeader className="pb-2">
+                                    <div className="flex items-start justify-between gap-4">
+                                        <CardTitle className="text-lg flex items-start gap-2">
+                                            <span className="bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center text-sm flex-shrink-0 mt-0.5">
+                                                {index + 1}
+                                            </span>
+                                            <span>{q.question}</span>
+                                        </CardTitle>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleCopy(q, index)}
+                                            className="gap-1 h-8 flex-shrink-0"
+                                        >
+                                            {copied === index ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                        </Button>
+                                    </div>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <div className="grid gap-2">
+                                        {q.options.map((option, optIndex) => (
+                                            <div
+                                                key={optIndex}
+                                                className={`p-3 rounded-lg border transition-colors ${revealedAnswers.has(index) && option === q.correctAnswer
+                                                    ? "bg-green-500/10 border-green-500/50 text-green-700 dark:text-green-400"
+                                                    : "bg-muted/30 border-border/30"
+                                                    }`}
+                                            >
+                                                <span className="font-medium mr-2">{String.fromCharCode(65 + optIndex)}.</span>
+                                                {option}
+                                            </div>
+                                        ))}
+                                    </div>
 
-                        {/* Key Points */}
-                        <Card className="bg-background/80 backdrop-blur-sm border-border/50">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="flex items-center gap-2 text-lg">
-                                        <Zap className="h-5 w-5 text-primary" />
-                                        Key Points
-                                    </CardTitle>
                                     <Button
-                                        variant="outline"
+                                        variant="ghost"
                                         size="sm"
-                                        onClick={() => handleCopy(result.keypoints, 'keypoints')}
-                                        className="gap-1 h-8"
+                                        onClick={() => toggleAnswer(index)}
+                                        className="w-full text-muted-foreground hover:text-foreground"
                                     >
-                                        {copied === 'keypoints' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                                        {revealedAnswers.has(index) ? (
+                                            <>
+                                                <ChevronUp className="h-4 w-4 mr-2" />
+                                                Hide Answer
+                                            </>
+                                        ) : (
+                                            <>
+                                                <ChevronDown className="h-4 w-4 mr-2" />
+                                                Show Answer
+                                            </>
+                                        )}
                                     </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="max-h-[300px] overflow-auto p-3 rounded-lg bg-muted/30 border border-border/30">
-                                    <pre className="text-sm whitespace-pre-wrap font-sans">{result.keypoints}</pre>
-                                </div>
-                            </CardContent>
-                        </Card>
+
+                                    {revealedAnswers.has(index) && (
+                                        <div className="p-4 rounded-lg bg-muted/50 border border-border/30 space-y-2">
+                                            <p className="text-sm">
+                                                <span className="font-semibold text-green-600 dark:text-green-400">Correct Answer:</span>{" "}
+                                                {q.correctAnswer}
+                                            </p>
+                                            <p className="text-sm text-muted-foreground">
+                                                <span className="font-semibold">Explanation:</span> {q.explanation}
+                                            </p>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        ))}
                     </div>
                 )}
 
@@ -349,9 +373,9 @@ const Summarizer = () => {
                     <Card className="bg-background/60 backdrop-blur-sm border-border/50">
                         <CardContent className="py-12">
                             <div className="flex flex-col items-center justify-center text-muted-foreground">
-                                <Sparkles className="h-16 w-16 mb-4 opacity-30" />
+                                <Brain className="h-16 w-16 mb-4 opacity-30" />
                                 <p className="text-center text-lg">
-                                    Upload a document to see the extracted text, summary, and key points here.
+                                    Upload a document to generate quiz questions for your study session.
                                 </p>
                             </div>
                         </CardContent>
@@ -364,4 +388,4 @@ const Summarizer = () => {
     );
 };
 
-export default Summarizer;
+export default Quiz;
