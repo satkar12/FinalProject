@@ -69,7 +69,7 @@ const Create = () => {
             setGroupType("");
 
             // Navigate to explore page after a short delay
-            setTimeout(() => navigate("/chat"), 1000);
+            setTimeout(() => navigate("/discussion"), 1000);
         } catch (error) {
             console.error("Error creating group:", error);
             toast({

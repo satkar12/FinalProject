@@ -30,7 +30,7 @@ const Navigation = () => {
             </div>
 
             {/* Middle: Navigation links */}
-            <div className="hidden md:flex items-center gap-8">
+            <div className="hidden md:flex items-center gap-8 text:md font-medium">
                 <Link
                     to="/dashboard"
                     className="text-foreground hover:text-primary transition-colors flex items-center gap-2"
