@@ -11,3 +11,13 @@ node_modules/
 # Python cache
 __pycache__/
 *.pyc
+
+*.tar.gz
+*.safetensors
+*.model
+eng.traineddata
+
+# Specific folders from your screenshot
+backend/quickprep-t5/
+backend/uploads/
+quickprep-t5.tar.gz

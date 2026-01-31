@@ -1,11 +1,10 @@
 import os
 import pytesseract
 import nltk
-import torch 
+import torch
 import re
 from fastapi import HTTPException
 from typing import Dict
-
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from PyPDF2 import PdfReader
@@ -20,27 +19,32 @@ nltk.download("punkt")
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-
 app = FastAPI(title="QuickPrep AI Summarizer")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # restrict later
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------------- LOAD MODEL ONCE ----------------
+# ---------------- LOAD MODEL ----------------
 print("Loading T5 model...")
+# ---------------- LOAD MODEL ----------------
+print("Loading T5 model from Hugging Face...")
 
-tokenizer = T5Tokenizer.from_pretrained("t5-small")
-model = T5ForConditionalGeneration.from_pretrained("t5-small")
+# 1. Replace this with your actual Hugging Face Repo ID (e.g., "username/quickprep-t5")
+model_repo_id = "satkar12/quickprep-t5" 
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# 2. Transformers will automatically download and cache the model for you
+tokenizer = T5Tokenizer.from_pretrained(model_repo_id)
+model = T5ForConditionalGeneration.from_pretrained(model_repo_id)
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
-print("Model loaded.")
+print(f"Model loaded on {device}.")
 
 # ---------------- FILE READERS ----------------
 def read_pdf(path):
@@ -48,31 +52,36 @@ def read_pdf(path):
     reader = PdfReader(path)
     for page in reader.pages:
         if page.extract_text():
-            text += page.extract_text()
+            text += page.extract_text() + "\n"
     return text
 
 def read_scanned_pdf(path):
     text = ""
     images = convert_from_path(path)
     for img in images:
-        text += pytesseract.image_to_string(img)
+        text += pytesseract.image_to_string(img) + "\n"
     return text
 
-def read_pptx(path):
-    prs = Presentation(path)
-    text = ""
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                text += shape.text + "\n"
+# ---------------- TEXT NORMALIZATION ----------------
+def normalize_text(text):
+    text = re.sub(r"\n+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+def prepare_text_for_summary(text, min_words=60):
+    words = text.split()
+    if len(words) < min_words:
+        pass
     return text
 
+# ---------------- HEADING DETECTION (PDF) ----------------
 def is_heading_pdf(line: str) -> bool:
     return (
-        line.isupper() or
-        re.match(r"^\d+(\.\d+)*\s+.+", line) or
-        (len(line.split()) <= 6 and line.endswith(":"))
+        line.isupper()
+        or re.match(r"^\d+(\.\d+)*\s+.+", line)
+        or (len(line.split()) <= 6 and not line.endswith("."))
     )
+
 def split_pdf_by_headings(text: str) -> Dict[str, str]:
     lines = text.split("\n")
     sections = {}
@@ -91,6 +100,8 @@ def split_pdf_by_headings(text: str) -> Dict[str, str]:
             sections[current_heading].append(line)
 
     return {k: " ".join(v) for k, v in sections.items()}
+
+# ---------------- HEADING DETECTION (PPTX) ----------------
 def extract_pptx_blocks(path):
     prs = Presentation(path)
     blocks = []
@@ -99,57 +110,26 @@ def extract_pptx_blocks(path):
         for shape in slide.shapes:
             if not shape.has_text_frame:
                 continue
-
             for p in shape.text_frame.paragraphs:
-                runs = []
-                for r in p.runs:
-                    runs.append({
-                        "text": r.text.strip(),
-                        "bold": r.font.bold,
-                        "size": r.font.size.pt if r.font.size else None
-                    })
-                blocks.append(runs)
+                blocks.append(p.text.strip())
 
     return blocks
-def avg_font_size(blocks):
-    sizes = [r["size"] for b in blocks for r in b if r["size"]]
-    return sum(sizes) / len(sizes) if sizes else 18
-def is_heading_pptx(block, avg_size):
-    text = " ".join(r["text"] for r in block).strip()
-    if not text:
-        return False
-
-    max_size = max((r["size"] or 0) for r in block)
-    is_bold = any(r["bold"] for r in block)
-    words = len(text.split())
-
-    return (
-        max_size >= avg_size + 1
-        or (is_bold and words <= 15)
-        or (words <= 6 and not text.endswith("."))
-    )
 
 def split_pptx_by_headings(path):
     blocks = extract_pptx_blocks(path)
-    avg_size = avg_font_size(blocks)
-
     sections = {}
     current_heading = "Introduction"
     sections[current_heading] = []
 
-    for block in blocks:
-        text = " ".join(r["text"] for r in block).strip()
+    for text in blocks:
         if not text:
             continue
-
-        if is_heading_pptx(block, avg_size):
-            print(f"DETECTED HEADING: {repr(text)}")  # <-- debug each heading found
+        if len(text.split()) <= 6 and not text.endswith("."):
             current_heading = text
             sections[current_heading] = []
         else:
             sections[current_heading].append(text)
 
-    print("FINAL HEADINGS:", list(sections.keys()))  # <-- debug AFTER loop
     return {k: " ".join(v) for k, v in sections.items()}
 
 # ---------------- TEXT CHUNKING ----------------
@@ -158,24 +138,30 @@ def chunk_text(text, max_len=800):
     chunks, current = [], ""
 
     for s in sentences:
-        if len(current) + len(s) < max_len:
+        if len(current) + len(s) <= max_len:
             current += s + " "
         else:
-            chunks.append(current)
+            chunks.append(current.strip())
             current = s + " "
 
     if current:
-        chunks.append(current)
+        chunks.append(current.strip())
 
     return chunks
 
-
+# ---------------- SUMMARIZATION ----------------
 def summarize_text(text: str) -> str:
-    chunks = chunk_text(text)
-    points = []
+    text = normalize_text(text)
+    text = prepare_text_for_summary(text)
 
+    chunks = chunk_text(text)
+    summaries = []
+
+    # ----- First pass -----
     for chunk in chunks:
-        prompt = "summarize academic notes  in concise bullet points: " + chunk
+        prompt = (
+            "summarize:" + chunk
+        )
 
         inputs = tokenizer.encode(
             prompt,
@@ -186,89 +172,74 @@ def summarize_text(text: str) -> str:
 
         output = model.generate(
             inputs,
-            max_length=120,
-            min_length=40,
+            max_length=150,
+            min_length=30,
             num_beams=4,
-            length_penalty=2.0,
+            length_penalty=1.0,
+            no_repeat_ngram_size=3,
+            repetition_penalty=2.5,
             early_stopping=True,
         )
 
-        summary_text = tokenizer.decode(
-            output[0],
-            skip_special_tokens=True
+        summaries.append(
+            tokenizer.decode(output[0], skip_special_tokens=True)
         )
 
-        # convert summary to points
-        for sent in sent_tokenize(summary_text):
-            sent = sent.strip()
-            if len(sent) > 10:
-                points.append(sent)
+    
 
-    # remove duplicates & keep max 6 points
-    unique_points = list(dict.fromkeys(points))
-    return unique_points[:6]
+    final_summary = tokenizer.decode(output[0], skip_special_tokens=True)
 
-# ---------------- SUMMARIZATION ----------------
+    final_summary = re.sub(r"[\n•\-]+", " ", final_summary)
+    final_summary = re.sub(r"\s+", " ", final_summary).strip()
 
-# ---------------- API ENDPOINT ----------------
+    return final_summary
 
+# ---------------- API ENDPOINTS ----------------
 @app.post("/summarize-pdf")
 async def summarize_pdf(file: UploadFile = File(...)):
-    # Save upload
     if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported for now.")
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as f:
+    path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(path, "wb") as f:
         f.write(await file.read())
 
-    # 1) Try text PDF first
-    text = read_pdf(file_path)
+    text = read_pdf(path)
     if not text.strip():
-        # Fallback: scanned PDF via OCR
-        text = read_scanned_pdf(file_path)
+        text = read_scanned_pdf(path)
 
     if not text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract text from PDF.")
+        raise HTTPException(status_code=400, detail="Could not extract text.")
 
-    # 2) Split by headings
     sections = split_pdf_by_headings(text)
-      # {heading: body_text}
+    results = []
 
-    # 3) Summarize each section
-    summarized_sections:Dict[str,list[str]] = {}
     for heading, body in sections.items():
-        if not body.strip():
-            continue
-        summarized_sections[heading] = summarize_text(body)
-    return {
-        "sections": [       
-            {"heading": h, "points": s}
-            for h, s in summarized_sections.items()
-        ]       
-    }
-    
+        if body.strip():
+            results.append({
+                "heading": heading,
+                "summary": summarize_text(body)
+            })
+
+    return {"sections": results}
+
 @app.post("/summarize-pptx")
 async def summarize_pptx(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".pptx"):
-        raise HTTPException(status_code=400, detail="Only PPTX files are supported for now.")
+        raise HTTPException(status_code=400, detail="Only PPTX files are supported.")
 
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as f:
+    path = os.path.join(UPLOAD_DIR, file.filename)
+    with open(path, "wb") as f:
         f.write(await file.read())
 
-    sections = split_pptx_by_headings(file_path)  # {heading: body}
-    summarized_sections:Dict[str,list[str]] = {}
+    sections = split_pptx_by_headings(path)
+    results = []
 
     for heading, body in sections.items():
-        if not body.strip():
-            continue
-        summarized_sections[heading] = summarize_text(body)
+        if body.strip():
+            results.append({
+                "heading": heading,
+                "summary": summarize_text(body)
+            })
 
-    return {
-        "sections": [
-            {"heading": h, "points": s}
-            for h, s in summarized_sections.items()
-        ]
-    }
-
+    return {"sections": results}
